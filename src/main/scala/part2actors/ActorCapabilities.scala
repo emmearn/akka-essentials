@@ -147,4 +147,23 @@ object ActorCapabilities extends App {
   val person = system.actorOf(Props[Person], "bilionaire")
 
   person ! LiveTheLife(account)
+
+  /**
+    * immaginate a pool of few threads and a LOTS of actors
+    * Akka scheduling actors for execution on these small number of threads
+    *
+    * an Actor have a message handler and a message queue (mailbox)
+    * whenever we send a message it's in queued in this mailbox (thread-safe)
+    *
+    * an Actor is a data structure actually needs a thread to run
+    * a thread take control to run this actor and a message are extracted from the mailbox, in order
+    * for every message the thread invokes the handler
+    * has a result the actor might change his state or send messages to other actors
+    * this happens a bunch of times
+    * at some point the actor is unscheduled and the Thread releases control of this actor
+    *
+    * only one thread operates on an actor at any time (no locks needed!)
+    * the message will never receive duplicates
+    * sending a messages A and B, the receviving actor will receive that in order
+    */
 }
