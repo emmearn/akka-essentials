@@ -1,14 +1,14 @@
 package exercises
 
-import akka.actor.{Actor, ActorPath, ActorRef, ActorSystem, Props}
+import akka.actor.{Actor,  ActorRef, ActorSystem, Props}
 
 object ChildActorsExercises extends App {
 
   // Distributed Word counting
   object WordCounterMaster {
     case class Initialize(nChildren: Int)
-    case class WordCountTask(text: String)
-    case class WordCountReply(workersPath: ActorPath, text: String, count: Int)
+    case class WordCountTask(id: Int, text: String)
+    case class WordCountReply(id: Int, count: Int)
 
   }
   class WordCounterMaster extends Actor {
@@ -16,26 +16,20 @@ object ChildActorsExercises extends App {
 
     override def receive: Receive = {
       case Initialize(nChildren) =>
+        println("[master] initializing...")
         val workers = for (i <- 1 to nChildren) yield context.actorOf(Props[WordCounterWorker], s"worker_$i")
-        context.become(initialized(workers))
+        context.become(initialized(workers, 1, Map()))
     }
-//    override def receive: Receive = {
-//      case Initialize(nChildren) =>
-//        context.become(initialized(initializeWorkers(nChildren, List[ActorRef]())))
-//    }
-//
-//    def initializeWorkers(nChildren: Int, workers: List[ActorRef]): List[ActorRef] = {
-//      if(nChildren == 0)
-//        workers
-//      else
-//        initializeWorkers(nChildren - 1, workers :+ system.actorOf(Props[WordCounterWorker], s"worker$nChildren"))
-//    }
 
-    def initialized(workers: Seq[ActorRef]): Receive = {
-      case WordCountReply(path, text, count) => println(s"My workers $path have counts $count words in text '${text}'")
+    def initialized(workers: Seq[ActorRef], taskId: Int, requestMap: Map[Int, ActorRef]): Receive = {
+      case WordCountReply(id, count) =>
+        requestMap(id) ! count
+        println(s"[master] I have received a reply for task id $id with $count")
+        context.become(initialized(workers, taskId, requestMap - id))
       case text: String =>
-        workers.head ! WordCountTask(text)
-        context.become(initialized(workers.tail :+ workers.head))
+        println(s"[master] I have received: $text - I will send it to child $taskId")
+        workers.head ! WordCountTask(taskId, text)
+        context.become(initialized(workers.tail :+ workers.head, taskId + 1, requestMap + (taskId -> sender)))
     }
   }
 
@@ -43,18 +37,28 @@ object ChildActorsExercises extends App {
     import WordCounterMaster._
 
     override def receive: Receive = {
-      case WordCountTask(text) => sender ! WordCountReply(self.path, text, text.split(" ").length)
+      case WordCountTask(id, text) =>
+        println(s"${self.path} I have received task $id with $text")
+        sender ! WordCountReply(id, text.split(" ").length)
     }
   }
 
-  import WordCounterMaster.Initialize
-  val system = ActorSystem("ChildActorsExercises")
-  val wordCounterMaster = system.actorOf(Props[WordCounterMaster])
-  wordCounterMaster ! Initialize(3)
+  class TestActor extends Actor {
+    override def receive: Receive = {
+      case "go" =>
+        import WordCounterMaster.Initialize
+        val master = context.actorOf(Props[WordCounterMaster], "master")
+        master ! Initialize(3)
 
-  wordCounterMaster ! "Akka is awesome"
-  wordCounterMaster ! "test for counts"
-  wordCounterMaster ! "another test for counts"
-  wordCounterMaster ! "this should be restart with first worker"
-  wordCounterMaster ! "is actually restarted ?"
+        val texts = List("I love akka", "Scala is super dope", "yes", "mee to")
+
+        texts.foreach(text => master ! text)
+      case count: Int =>
+        println(s"[test actor] I received a reply $count")
+    }
+  }
+
+  val system = ActorSystem("roundRobinWordCountExercise")
+  val testActor = system.actorOf(Props[TestActor], "testActir")
+  testActor ! "go"
 }
